@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知识图谱 - 笔记关联关系可视化</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* 侧边栏 */
+    .sidebar {
+      width: 320px;
+      background: #1e293b;
+      border-right: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+    }
+
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .sidebar-header p {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    .stats {
+      display: flex;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #60a5fa;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    /* 筛选区域 */
+    .filters {
+      padding: 20px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .filter-group {
+      margin-bottom: 16px;
+    }
+
+    .filter-group label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: #60a5fa;
+    }
+
+    .tag-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag-filter {
+      padding: 6px 12px;
+      background: #334155;
+      border: none;
+      border-radius: 20px;
+      color: #e2e8f0;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tag-filter:hover {
+      background: #475569;
+    }
+
+    .tag-filter.active {
+      background: #3b82f6;
+    }
+
+    /* 节点详情 */
+    .node-details {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .node-details h3 {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 12px;
+    }
+
+    .detail-card {
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .detail-card h4 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #f1f5f9;
+    }
+
+    .detail-card p {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+
+    .detail-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .detail-tag {
+      padding: 4px 10px;
+      background: rgba(59, 130, 246, 0.2);
+      border-radius: 12px;
+      font-size: 11px;
+      color: #60a5fa;
+    }
+
+    .related-nodes {
+      margin-top: 12px;
+    }
+
+    .related-node {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #1e293b;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .related-node:hover {
+      background: #334155;
+    }
+
+    .related-node .strength {
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    /* 笔记内容弹窗 */
+    .content-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .content-modal-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .content-modal {
+      background: #1e293b;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 800px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      transform: scale(0.9);
+      transition: transform 0.3s ease;
+    }
+
+    .content-modal-overlay.visible .content-modal {
+      transform: scale(1);
+    }
+
+    .content-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .content-modal-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin: 0;
+    }
+
+    .content-modal-close {
+      width: 32px;
+      height: 32px;
+      background: #334155;
+      border: none;
+      border-radius: 8px;
+      color: #94a3b8;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .content-modal-close:hover {
+      background: #475569;
+      color: #f1f5f9;
+    }
+
+    .content-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    .content-modal-body .markdown-content {
+      color: #e2e8f0;
+      line-height: 1.8;
+      font-size: 14px;
+    }
+
+    .content-modal-body .markdown-content h1,
+    .content-modal-body .markdown-content h2,
+    .content-modal-body .markdown-content h3 {
+      color: #f1f5f9;
+      margin-top: 24px;
+      margin-bottom: 12px;
+    }
+
+    .content-modal-body .markdown-content h1 {
+      font-size: 22px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 8px;
+    }
+
+    .content-modal-body .markdown-content h2 {
+      font-size: 18px;
+    }
+
+    .content-modal-body .markdown-content h3 {
+      font-size: 16px;
+    }
+
+    .content-modal-body .markdown-content p {
+      margin-bottom: 12px;
+    }
+
+    .content-modal-body .markdown-content ul,
+    .content-modal-body .markdown-content ol {
+      margin-bottom: 12px;
+      padding-left: 24px;
+    }
+
+    .content-modal-body .markdown-content li {
+      margin-bottom: 6px;
+    }
+
+    .content-modal-body .markdown-content blockquote {
+      border-left: 3px solid #3b82f6;
+      padding-left: 16px;
+      margin: 16px 0;
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    .content-modal-body .markdown-content code {
+      background: #0f172a;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 13px;
+    }
+
+    .content-modal-body .markdown-content pre {
+      background: #0f172a;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 16px 0;
+    }
+
+    .content-modal-body .markdown-content strong {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .content-modal-body .markdown-content hr {
+      border: none;
+      border-top: 1px solid #334155;
+      margin: 24px 0;
+    }
+
+    .view-content-btn {
+      width: 100%;
+      padding: 10px;
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 12px;
+      transition: background 0.2s;
+    }
+
+    .view-content-btn:hover {
+      background: #2563eb;
+    }
+
+    /* 主画布 */
+    .main-content {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #graph-svg:active {
+      cursor: grabbing;
+    }
+
+    /* 图例 */
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(30, 41, 59, 0.9);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid #334155;
+    }
+
+    .legend h4 {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    /* 控制按钮 */
+    .controls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .control-btn {
+      width: 40px;
+      height: 40px;
+      background: rgba(30, 41, 59, 0.9);
+      backdrop-filter: blur(10px);
+      border: 1px solid #334155;
+      border-radius: 10px;
+      color: #e2e8f0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+      background: #334155;
+      transform: scale(1.05);
+    }
+
+    /* 提示框 */
+    .tooltip {
+      position: absolute;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 100;
+      max-width: 280px;
+    }
+
+    .tooltip.visible {
+      opacity: 1;
+    }
+
+    .tooltip h4 {
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .tooltip p {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    /* 空状态 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #64748b;
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    /* 加载状态 */
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .loading-spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>🧠 知识图谱</h1>
+        <p>可视化笔记间的关联关系</p>
+        <div class="stats">
+          <div class="stat-item">
+            <div class="stat-value" id="stat-nodes">0</div>
+            <div class="stat-label">笔记</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-links">0</div>
+            <div class="stat-label">关联</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-tags">0</div>
+            <div class="stat-label">标签</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="filters">
+        <div class="filter-group">
+          <label>搜索笔记</label>
+          <input type="text" class="search-input" id="search-input" placeholder="输入关键词搜索...">
+        </div>
+        <div class="filter-group">
+          <label>标签筛选</label>
+          <div class="tag-filters" id="tag-filters"></div>
+        </div>
+      </div>
+
+      <div class="node-details" id="node-details">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          <p>点击节点查看详情</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主画布 -->
+    <main class="main-content">
+      <svg id="graph-svg"></svg>
+      
+      <div class="controls">
+        <button class="control-btn" id="btn-zoom-in" title="放大">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/>
+          </svg>
+        </button>
+        <button class="control-btn" id="btn-zoom-out" title="缩小">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M8 11h6"/>
+          </svg>
+        </button>
+        <button class="control-btn" id="btn-reset" title="重置视图">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="legend">
+        <h4>分类图例</h4>
+        <div id="legend-content"></div>
+      </div>
+
+      <div class="tooltip" id="tooltip"></div>
+      
+      <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+        <p>正在加载知识图谱...</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- 笔记内容弹窗 -->
+  <div class="content-modal-overlay" id="content-modal">
+    <div class="content-modal">
+      <div class="content-modal-header">
+        <h2 id="modal-title">笔记内容</h2>
+        <button class="content-modal-close" onclick="closeContentModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="content-modal-body">
+        <div class="markdown-content" id="modal-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 配色方案
+    const categoryColors = {
+      '读书笔记': '#3b82f6',
+      '灵感': '#8b5cf6',
+      '随笔': '#10b981',
+      '技术': '#f59e0b',
+      '生活': '#ec4899',
+      '工作': '#06b6d4',
+      'default': '#64748b'
+    };
+
+    // 全局变量
+    let simulation;
+    let svg, g, link, node;
+    let graphData = { nodes: [], links: [] };
+    let allTags = new Set();
+    let activeTag = null;
+    let selectedNode = null;
+
+    // 初始化
+    async function init() {
+      try {
+        // 加载数据
+        const data = await loadGraphData();
+        graphData = processGraphData(data);
+        
+        // 更新统计
+        updateStats();
+        
+        // 初始化标签筛选
+        initTagFilters();
+        
+        // 初始化图例
+        initLegend();
+        
+        // 渲染图谱
+        renderGraph();
+        
+        // 隐藏加载
+        document.getElementById('loading').style.display = 'none';
+        
+      } catch (error) {
+        console.error('初始化失败:', error);
+        document.getElementById('loading').innerHTML = `
+          <p style="color: #ef4444;">加载失败: ${error.message}</p>
+          <p style="font-size: 12px; margin-top: 8px;">请确保知识库数据存在</p>
+        `;
+      }
+    }
+
+    // 加载图谱数据
+    async function loadGraphData() {
+      try {
+        // 从 index.json 加载所有笔记
+        const indexResponse = await fetch('.kb/index.json');
+        if (!indexResponse.ok) {
+          throw new Error('无法加载知识库索引');
+        }
+        
+        const indexData = await indexResponse.json();
+        const docs = indexData.docs || {};
+        
+        // 构建节点
+        const nodes = Object.values(docs).map(doc => ({
+          id: doc.id,
+          label: doc.title,
+          category: doc.category || '未分类',
+          tags: doc.tags || []
+        }));
+        
+        // 自动计算关联关系
+        const edges = calculateRelationships(docs);
+        
+        return { nodes, edges };
+        
+      } catch (error) {
+        console.error('加载知识库失败:', error);
+        // 返回空数据
+        return { nodes: [], edges: [] };
+      }
+    }
+    
+    // 计算笔记间的关联关系
+    function calculateRelationships(docs) {
+      const edges = [];
+      const docList = Object.values(docs);
+      
+      for (let i = 0; i < docList.length; i++) {
+        for (let j = i + 1; j < docList.length; j++) {
+          const doc1 = docList[i];
+          const doc2 = docList[j];
+          
+          const similarity = calculateSimilarity(doc1, doc2);
+          
+          if (similarity > 0.1) {
+            edges.push({
+              source: doc1.id,
+              target: doc2.id,
+              weight: similarity
+            });
+          }
+        }
+      }
+      
+      return edges;
+    }
+    
+    // 计算两篇笔记的相似度
+    function calculateSimilarity(doc1, doc2) {
+      let score = 0;
+      
+      // 标签相似度 (权重 0.6)
+      const tags1 = new Set(doc1.tags || []);
+      const tags2 = new Set(doc2.tags || []);
+      if (tags1.size > 0 && tags2.size > 0) {
+        const commonTags = [...tags1].filter(tag => tags2.has(tag));
+        const tagSimilarity = commonTags.length / Math.max(tags1.size, tags2.size);
+        score += tagSimilarity * 0.6;
+      }
+      
+      // 分类相同 (权重 0.3)
+      if (doc1.category === doc2.category) {
+        score += 0.3;
+      }
+      
+      // 标题关键词相似度 (权重 0.1)
+      const title1 = doc1.title || '';
+      const title2 = doc2.title || '';
+      const words1 = title1.toLowerCase().split(/\s+/);
+      const words2 = title2.toLowerCase().split(/\s+/);
+      const commonWords = words1.filter(w => words2.includes(w) && w.length > 1);
+      if (words1.length > 0 && words2.length > 0) {
+        const titleSimilarity = commonWords.length / Math.max(words1.length, words2.length);
+        score += titleSimilarity * 0.1;
+      }
+      
+      return Math.min(score, 1);
+    }
+
+    // 处理图谱数据
+    function processGraphData(data) {
+      // 收集所有标签
+      data.nodes.forEach(node => {
+        if (node.tags) {
+          node.tags.forEach(tag => allTags.add(tag));
+        }
+      });
+
+      // 确保边的source和target是对象引用
+      const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
+      
+      const links = data.edges.map(edge => ({
+        source: nodeMap.get(edge.source) || edge.source,
+        target: nodeMap.get(edge.target) || edge.target,
+        weight: edge.weight || 0.5
+      }));
+
+      return { nodes: data.nodes, links };
+    }
+
+    // 更新统计
+    function updateStats() {
+      document.getElementById('stat-nodes').textContent = graphData.nodes.length;
+      document.getElementById('stat-links').textContent = graphData.links.length;
+      document.getElementById('stat-tags').textContent = allTags.size;
+    }
+
+    // 初始化标签筛选
+    function initTagFilters() {
+      const container = document.getElementById('tag-filters');
+      const tags = Array.from(allTags).sort();
+      
+      tags.forEach(tag => {
+        const btn = document.createElement('button');
+        btn.className = 'tag-filter';
+        btn.textContent = tag;
+        btn.onclick = () => toggleTagFilter(tag, btn);
+        container.appendChild(btn);
+      });
+    }
+
+    // 切换标签筛选
+    function toggleTagFilter(tag, btn) {
+      if (activeTag === tag) {
+        activeTag = null;
+        btn.classList.remove('active');
+      } else {
+        // 清除其他激活状态
+        document.querySelectorAll('.tag-filter').forEach(b => b.classList.remove('active'));
+        activeTag = tag;
+        btn.classList.add('active');
+      }
+      
+      filterNodes();
+    }
+
+    // 筛选节点
+    function filterNodes() {
+      const searchTerm = document.getElementById('search-input').value.toLowerCase();
+      
+      node.style('opacity', d => {
+        const matchesSearch = !searchTerm || 
+          d.label.toLowerCase().includes(searchTerm) ||
+          (d.tags && d.tags.some(t => t.toLowerCase().includes(searchTerm)));
+        
+        const matchesTag = !activeTag || (d.tags && d.tags.includes(activeTag));
+        
+        return matchesSearch && matchesTag ? 1 : 0.1;
+      });
+
+      link.style('opacity', d => {
+        const sourceVisible = d.source.tags && (!activeTag || d.source.tags.includes(activeTag));
+        const targetVisible = d.target.tags && (!activeTag || d.target.tags.includes(activeTag));
+        const sourceMatchesSearch = !searchTerm || d.source.label.toLowerCase().includes(searchTerm);
+        const targetMatchesSearch = !searchTerm || d.target.label.toLowerCase().includes(searchTerm);
+        
+        return (sourceVisible && targetVisible && sourceMatchesSearch && targetMatchesSearch) ? 0.6 : 0.05;
+      });
+    }
+
+    // 初始化图例
+    function initLegend() {
+      const container = document.getElementById('legend-content');
+      const categories = [...new Set(graphData.nodes.map(n => n.category))];
+      
+      categories.forEach(category => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+          <div class="legend-dot" style="background: ${categoryColors[category] || categoryColors.default}"></div>
+          <span>${category}</span>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // 渲染图谱
+    function renderGraph() {
+      const container = document.querySelector('.main-content');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg = d3.select('#graph-svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      // 清除之前的内容
+      svg.selectAll('*').remove();
+
+      // 添加缩放行为
+      const zoom = d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => {
+          g.attr('transform', event.transform);
+        });
+
+      svg.call(zoom);
+
+      // 创建主容器
+      g = svg.append('g');
+
+      // 创建力导向模拟
+      simulation = d3.forceSimulation(graphData.nodes)
+        .force('link', d3.forceLink(graphData.links)
+          .id(d => d.id)
+          .distance(d => 150 - d.weight * 50))
+        .force('charge', d3.forceManyBody().strength(-300))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(40));
+
+      // 绘制连线
+      link = g.append('g')
+        .attr('class', 'links')
+        .selectAll('line')
+        .data(graphData.links)
+        .enter()
+        .append('line')
+        .attr('stroke', '#475569')
+        .attr('stroke-width', d => Math.sqrt(d.weight) * 3)
+        .attr('stroke-opacity', 0.6);
+
+      // 绘制节点组
+      node = g.append('g')
+        .attr('class', 'nodes')
+        .selectAll('g')
+        .data(graphData.nodes)
+        .enter()
+        .append('g')
+        .attr('class', 'node')
+        .call(d3.drag()
+          .on('start', dragstarted)
+          .on('drag', dragged)
+          .on('end', dragended));
+
+      // 节点圆形
+      node.append('circle')
+        .attr('r', d => 20 + (d.tags ? d.tags.length * 2 : 0))
+        .attr('fill', d => categoryColors[d.category] || categoryColors.default)
+        .attr('stroke', '#1e293b')
+        .attr('stroke-width', 2)
+        .style('cursor', 'pointer');
+
+      // 节点标签
+      node.append('text')
+        .text(d => d.label)
+        .attr('x', 0)
+        .attr('y', d => 35 + (d.tags ? d.tags.length * 2 : 0))
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#e2e8f0')
+        .attr('font-size', '12px')
+        .attr('font-weight', '500')
+        .style('pointer-events', 'none')
+        .style('text-shadow', '0 1px 2px rgba(0,0,0,0.8)');
+
+      // 节点交互事件
+      node.on('click', (event, d) => {
+        event.stopPropagation();
+        selectNode(d);
+      });
+
+      node.on('mouseenter', (event, d) => {
+        showTooltip(event, d);
+      });
+
+      node.on('mouseleave', () => {
+        hideTooltip();
+      });
+
+      // 点击空白处取消选择
+      svg.on('click', () => {
+        selectedNode = null;
+        updateNodeSelection();
+        showEmptyState();
+      });
+
+      // 更新位置
+      simulation.on('tick', () => {
+        link
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+
+      // 绑定控制按钮
+      document.getElementById('btn-zoom-in').onclick = () => {
+        svg.transition().call(zoom.scaleBy, 1.3);
+      };
+
+      document.getElementById('btn-zoom-out').onclick = () => {
+        svg.transition().call(zoom.scaleBy, 0.7);
+      };
+
+      document.getElementById('btn-reset').onclick = () => {
+        svg.transition().call(zoom.transform, d3.zoomIdentity);
+        simulation.alpha(1).restart();
+      };
+
+      // 搜索框事件
+      document.getElementById('search-input').addEventListener('input', filterNodes);
+    }
+
+    // 拖拽函数
+    function dragstarted(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+
+    function dragended(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
+
+    // 选择节点
+    function selectNode(d) {
+      selectedNode = d;
+      updateNodeSelection();
+      showNodeDetails(d);
+    }
+
+    // 更新节点选择状态
+    function updateNodeSelection() {
+      node.selectAll('circle')
+        .attr('stroke', d => selectedNode && selectedNode.id === d.id ? '#fbbf24' : '#1e293b')
+        .attr('stroke-width', d => selectedNode && selectedNode.id === d.id ? 4 : 2);
+    }
+
+    // 显示节点详情
+    function showNodeDetails(d) {
+      const container = document.getElementById('node-details');
+      
+      // 查找相关节点
+      const relatedLinks = graphData.links.filter(l => 
+        l.source.id === d.id || l.target.id === d.id
+      );
+      
+      const relatedNodes = relatedLinks.map(l => {
+        const isSource = l.source.id === d.id;
+        return {
+          node: isSource ? l.target : l.source,
+          strength: l.weight
+        };
+      }).sort((a, b) => b.strength - a.strength);
+
+      container.innerHTML = `
+        <div class="detail-card">
+          <h4>${d.label}</h4>
+          <p>分类: ${d.category}</p>
+          <div class="detail-tags">
+            ${(d.tags || []).map(tag => `<span class="detail-tag">${tag}</span>`).join('')}
+          </div>
+          <button class="view-content-btn" onclick="viewNoteContent('${d.id}', '${d.label}')">
+            查看笔记内容
+          </button>
+        </div>
+        
+        ${relatedNodes.length > 0 ? `
+          <h3>相关笔记 (${relatedNodes.length})</h3>
+          <div class="related-nodes">
+            ${relatedNodes.map(({ node, strength }) => `
+              <div class="related-node" onclick="selectNodeById('${node.id}')">
+                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${categoryColors[node.category] || categoryColors.default}"></div>
+                <span style="flex: 1;">${node.label}</span>
+                <span class="strength">关联度: ${(strength * 100).toFixed(0)}%</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<p style="color: #64748b; padding: 20px;">暂无相关笔记</p>'}
+      `;
+    }
+
+    // 通过ID选择节点
+    function selectNodeById(id) {
+      const targetNode = graphData.nodes.find(n => n.id === id);
+      if (targetNode) {
+        selectNode(targetNode);
+      }
+    }
+
+    // 显示空状态
+    function showEmptyState() {
+      document.getElementById('node-details').innerHTML = `
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          <p>点击节点查看详情</p>
+        </div>
+      `;
+    }
+
+    // 显示提示框
+    function showTooltip(event, d) {
+      const tooltip = document.getElementById('tooltip');
+      tooltip.innerHTML = `
+        <h4>${d.label}</h4>
+        <p>${d.category} · ${d.tags ? d.tags.length : 0} 个标签</p>
+      `;
+      tooltip.classList.add('visible');
+      
+      const rect = tooltip.getBoundingClientRect();
+      let left = event.pageX + 12;
+      let top = event.pageY + 12;
+      
+      if (left + rect.width > window.innerWidth) {
+        left = event.pageX - rect.width - 12;
+      }
+      if (top + rect.height > window.innerHeight) {
+        top = event.pageY - rect.height - 12;
+      }
+      
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    }
+
+    // 隐藏提示框
+    function hideTooltip() {
+      document.getElementById('tooltip').classList.remove('visible');
+    }
+
+    // 查看笔记内容
+    async function viewNoteContent(docId, title) {
+      try {
+        // 检查缓存
+        if (noteContentCache[docId]) {
+          showModal(title, noteContentCache[docId]);
+          return;
+        }
+        
+        // 尝试多个可能的路径
+        const possiblePaths = [
+          `.kb/docs/${docId}.md`,
+          `.kb\\docs\\${docId}.md`,
+          `docs/${docId}.md`
+        ];
+        
+        let content = null;
+        for (const path of possiblePaths) {
+          try {
+            const response = await fetch(path);
+            if (response.ok) {
+              content = await response.text();
+              break;
+            }
+          } catch (e) {
+            // 继续尝试下一个路径
+          }
+        }
+        
+        // 如果文件加载失败，使用示例内容
+        if (!content) {
+          content = getSampleContent(docId);
+        }
+        
+        // 解析 Markdown 内容
+        const parsedContent = parseMarkdown(content);
+        
+        // 缓存解析后的内容
+        noteContentCache[docId] = parsedContent;
+        
+        // 显示弹窗
+        showModal(title, parsedContent);
+        
+      } catch (error) {
+        console.error('加载笔记内容失败:', error);
+        alert('加载笔记内容失败: ' + error.message);
+      }
+    }
+    
+    // 显示弹窗
+    function showModal(title, content) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-content').innerHTML = content;
+      document.getElementById('content-modal').classList.add('visible');
+    }
+
+    // 笔记内容缓存
+    const noteContentCache = {};
+
+    // 获取示例内容
+    function getSampleContent(docId) {
+      const samples = {
+        'doc_deep_work': `---
+id: doc_deep_work
+title: 《深度工作》阅读笔记
+created_at: 2026-02-28T00:00:00
+updated_at: 2026-02-28T00:00:00
+tags: ["阅读", "生产力", "深度工作", "时间管理"]
+category: 读书笔记
+word_count: 450
+---
+
+# 《深度工作》阅读笔记
+
+## 核心观点
+
+深度工作是在**无干扰状态下**进行的专业活动，这种状态下能将认知能力推向极限，从而创造难以复制的价值。
+
+### 深度工作公式
+> **高质量工作产出 = 时间 × 专注度**
+
+这意味着：
+- 同样的时间，专注度越高，产出质量越好
+- 与其长时间低效工作，不如短时间高度专注
+- 专注是一种可以训练的能力
+
+## 金句摘录
+
+> **"浮浅工作越多，深度工作能力越弱。"**
+
+这句话揭示了一个残酷的真相：
+- 频繁处理邮件、社交媒体、即时通讯等浮浅工作
+- 会不断打断我们的注意力，削弱深度思考能力
+- 久而久之，大脑习惯了碎片化，难以进入深度状态
+
+## 行动项
+
+### 立即行动
+1. **每天安排2小时深度工作时间**
+   - 选择精力最充沛的时段
+   - 关闭所有通知和干扰源
+   - 设定明确的工作目标
+
+### 后续计划
+2. 建立深度工作仪式
+3. 量化深度工作时长
+4. 定期回顾和调整策略
+
+## 思考与反思
+
+深度工作的本质是**对抗注意力碎片化**的时代趋势。在信息爆炸的今天，能够长时间专注的能力将成为稀缺资源，也是个人竞争力的关键来源。
+
+---
+*记录时间：2026-02-28*  
+*书籍作者：卡尔·纽波特*`,
+
+        'doc_product_optimization_20260228': `---
+id: doc_product_optimization_20260228
+title: 产品优化想法 - 加载速度优化
+created_at: 2026-02-28T00:00:00
+updated_at: 2026-02-28T00:00:00
+tags: ["想法", "产品优化", "性能优化", "前端"]
+category: 灵感
+word_count: 180
+---
+
+# 产品优化想法 - 加载速度优化
+
+## 背景
+用户反馈加载速度慢，影响使用体验。
+
+## 优化方案
+
+### 1. 图片懒加载
+- 仅加载视口内的图片
+- 使用 Intersection Observer API 监听
+- 占位符优化，避免布局抖动
+
+### 2. 分页加载
+- 大数据列表分页展示
+- 无限滚动加载更多
+- 虚拟滚动处理超长列表
+
+### 3. 缓存优化
+- 静态资源 CDN 缓存
+- API 响应数据本地缓存
+- Service Worker 离线缓存
+
+## 优先级评估
+1. **高优先级**: 图片懒加载（影响最明显）
+2. **中优先级**: 缓存优化（技术成本适中）
+3. **低优先级**: 分页加载（视场景而定）
+
+## 下一步行动
+- [ ] 分析当前页面性能瓶颈
+- [ ] 制定具体优化方案
+- [ ] 评估开发工作量
+
+---
+*记录时间：2026-02-28*
+*来源：用户反馈*`,
+
+        'doc_small_home_20260228': `---
+id: doc_small_home_20260228
+title: 《小家越住越大》阅读笔记 - 收纳思路
+created_at: 2026-02-28T00:00:00
+updated_at: 2026-02-28T00:00:00
+tags: ["阅读", "收纳", "家居", "生活美学", "整理"]
+category: 读书笔记
+word_count: 520
+---
+
+# 《小家越住越大》阅读笔记 - 收纳思路
+
+## 核心观点
+
+小家不等于拥挤，通过科学的收纳设计，小空间也能拥有大容量。收纳的本质不是"藏"，而是**让物品各得其所、方便取用**。
+
+## 收纳原则
+
+### 1. 垂直收纳原则
+- **向上发展**：充分利用墙面、柜体上方空间
+- **分层收纳**：高频物品放中间，低频放上下
+- **统一容器**：使用相同规格的收纳盒，视觉更整洁
+
+### 2. 就近收纳原则
+- **动线优化**：物品放在使用地点附近
+- **减少往返**：避免跨房间取物
+- **场景归类**：按使用场景而非物品类型分类
+
+### 3. 二八原则
+- **20%常用，80%不常用**：常用物品放在最容易拿到的地方
+- **隐藏80%**：不常用物品收纳在柜体深处或高处
+- **展示20%**：常用且美观的物品可以展示在外
+
+## 具体收纳技巧
+
+### 玄关收纳
+- 鞋柜深度35cm，可放男士大码鞋
+- 设置随手置物台（钥匙、快递）
+- 挂钩高度170cm，适合挂外套和包包
+
+### 厨房收纳
+- **黄金三角区**：水槽→灶台→冰箱，动线最短
+- 吊柜下层放常用调料，上层放囤货
+- 地柜用抽屉代替隔板，取物更方便
+- 利用墙面挂杆，释放台面空间
+
+### 衣柜收纳
+- **能挂不叠**：挂衣比叠衣更省空间、更易找
+- 短衣区高度100cm，长衣区140cm
+- 抽屉分隔：内衣、袜子分类存放
+- 换季衣物用真空压缩袋收纳
+
+### 卫生间收纳
+- 镜柜收纳护肤品，台面保持空旷
+- 马桶上方装置物架，利用垂直空间
+- 浴室柜选抽屉式，比开门式更实用
+
+## 收纳误区
+
+### ❌ 常见错误
+1. **过度收纳**：收纳盒套收纳盒，反而增加复杂度
+2. **盲目囤货**：为"可能用到"而囤积，占用宝贵空间
+3. **只收不理**：收纳后不复盘，很快又乱
+4. **忽视动线**：收纳位置不合理，取用不便
+
+### ✅ 正确做法
+- 定期断舍离，控制物品总量
+- 收纳后贴标签，一目了然
+- 建立"一进一出"原则，避免堆积
+- 根据生活习惯调整，而非照搬方案
+
+## 行动项
+
+### 立即行动
+1. **选择一个区域开始**：建议从玄关或衣柜入手
+2. **清空-分类-筛选-归位**：四步法整理
+3. **测量空间尺寸**：购买合适的收纳工具
+
+### 后续计划
+- [ ] 绘制家中收纳地图，规划每个区域
+- [ ] 建立物品清单，定期盘点
+- [ ] 每月进行一次小整理，每季度一次大整理
+
+## 思考与启发
+
+收纳不仅是整理物品，更是**梳理生活方式**。通过收纳，我们可以：
+- 更清楚自己真正需要什么
+- 减少决策疲劳，提高生活效率
+- 创造舒适、美观的居住环境
+
+> **小家越住越大的秘密**：不是空间变大，而是利用率变高，生活变得更从容。
+
+---
+*记录时间：2026-02-28*  
+*书籍作者：逯薇*`
+      };
+      
+      return samples[docId] || '# 暂无内容\n\n该笔记暂无详细内容。';
+    }
+
+    // 解析 Markdown（简单的解析器）
+    function parseMarkdown(content) {
+      // 移除 YAML frontmatter
+      content = content.replace(/^---[\s\S]*?---\n*/, '');
+      
+      // 转换标题
+      content = content.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+      content = content.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+      content = content.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+      
+      // 转换粗体
+      content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      
+      // 转换斜体
+      content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+      
+      // 转换引用
+      content = content.replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>');
+      
+      // 转换代码块
+      content = content.replace(/```[\s\S]*?```/g, match => {
+        const code = match.replace(/```/g, '').trim();
+        return `<pre><code>${escapeHtml(code)}</code></pre>`;
+      });
+      
+      // 转换行内代码
+      content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+      
+      // 转换链接
+      content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #60a5fa;">$1</a>');
+      
+      // 转换无序列表
+      content = content.replace(/^- (.*$)/gim, '<li>$1</li>');
+      content = content.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+      
+      // 转换有序列表
+      content = content.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
+      
+      // 转换水平线
+      content = content.replace(/^---$/gim, '<hr>');
+      
+      // 转换段落（需要在其他转换之后）
+      const paragraphs = content.split('\n\n');
+      content = paragraphs.map(p => {
+        p = p.trim();
+        if (!p) return '';
+        if (p.startsWith('<')) return p;
+        return `<p>${p}</p>`;
+      }).join('\n');
+      
+      return content;
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 关闭内容弹窗
+    function closeContentModal() {
+      document.getElementById('content-modal').classList.remove('visible');
+    }
+
+    // 点击弹窗外部关闭
+    document.getElementById('content-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'content-modal') {
+        closeContentModal();
+      }
+    });
+
+    // ESC 键关闭弹窗
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeContentModal();
+      }
+    });
+
+    // 窗口大小改变时重新渲染
+    window.addEventListener('resize', () => {
+      if (graphData.nodes.length > 0) {
+        renderGraph();
+      }
+    });
+
+    // 启动
+    init();
+  </script>
+</body>
+</html>
